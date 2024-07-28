@@ -29,6 +29,9 @@ class Rect:
         ymax = min(self.bbox[3], other[3])
         return xmin < xmax and ymin < ymax
     
+    def __str__(self):
+        return f"[{self.bbox[0]:.2f}, {self.bbox[1]:.2f}, {self.bbox[2]:.2f}, {self.bbox[3]:.2f}]"
+
     @property
     def width(self):
         return self.bbox[2] - self.bbox[0]

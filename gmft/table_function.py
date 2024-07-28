@@ -18,7 +18,7 @@ import torch
 from gmft.table_detection import CroppedTable, RotatedCroppedTable
 
 import transformers
-from transformers import AutoImageProcessor, TableTransformerForObjectDetection
+from transformers import AutoImageProcessor, DetrFeatureExtractor, TableTransformerForObjectDetection
 import pandas as pd
 
 from gmft.table_function_algorithm import extract_to_df
@@ -116,7 +116,7 @@ class TATRFormatConfig:
     warn_uninitialized_weights: bool = False
     image_processor_path: str = "microsoft/table-transformer-detection"
     formatter_path: str = "microsoft/table-transformer-structure-recognition"
-    no_timm: bool = True # use a model which uses AutoBackbone. 
+    no_timm: bool = True # use a model which uses AutoBackbone.
     torch_device: str = "cuda" if torch.cuda.is_available() else "cpu"
     # https://huggingface.co/microsoft/table-transformer-structure-recognition/discussions/5
     # "microsoft/table-transformer-structure-recognition-v1.1-all"
@@ -266,11 +266,16 @@ class TATRFormatConfig:
     def deduplication_iob_threshold(self, value):
         raise DeprecationWarning("deduplication_iob_threshold is deprecated. See nms_overlap_threshold instead.")
     
-    def __init__(self, torch_device: str = None):
+    def __init__(self, torch_device: str = None, formatter_path: str = None, no_timm: bool = None):
 
         if torch_device is not None:
             self.torch_device = torch_device
     
+        if formatter_path is not None:
+            self.formatter_path = formatter_path
+
+        if no_timm is not None:
+            self.no_timm = no_timm
 
 class TATRFormattedTable(FormattedTable):
     """
@@ -457,6 +462,7 @@ class TATRTableFormatter(TableFormatter):
             previous_verbosity = transformers.logging.get_verbosity()
             transformers.logging.set_verbosity(transformers.logging.ERROR)
         self.image_processor = AutoImageProcessor.from_pretrained(config.image_processor_path)
+        # self.image_processor = DetrFeatureExtractor()
         revision = "no_timm" if config.no_timm else None
         self.structor = TableTransformerForObjectDetection.from_pretrained(config.formatter_path, revision=revision).to(config.torch_device)
         self.config = config
@@ -477,8 +483,6 @@ class TATRTableFormatter(TableFormatter):
         image = table.image(dpi=dpi, padding=padding, margin=margin) # (20, 20, 20, 20)
         padding = table._img_padding
         margin = table._img_margin
-        
-        
         
         scale_factor = dpi / 72
         encoding = self.image_processor(image, return_tensors="pt").to(self.config.torch_device)

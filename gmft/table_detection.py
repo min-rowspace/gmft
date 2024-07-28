@@ -16,7 +16,7 @@ from PIL.Image import Image as PILImage
 import numpy as np
 import torch
 import transformers
-from transformers import AutoImageProcessor, TableTransformerForObjectDetection
+from transformers import AutoImageProcessor, DetrFeatureExtractor, TableTransformerForObjectDetection
 
 from gmft.common import Rect
 from gmft.pdf_bindings.common import BasePage, ImageOnlyPage
@@ -283,7 +283,8 @@ class TableDetectorConfig:
     def confidence_score_threshold(self, value):
         raise DeprecationWarning("Use detector_base_threshold instead.")
     
-    def __init__(self, image_processor_path: str = None, detector_path: str = None, torch_device: str = None):
+    def __init__(self, image_processor_path: str = None, detector_path: str = None,
+                 torch_device: str = None, detector_base_threshold: float = None):
 
         if image_processor_path is not None:
             self.image_processor_path = image_processor_path
@@ -291,6 +292,8 @@ class TableDetectorConfig:
             self.detector_path = detector_path
         if torch_device is not None:
             self.torch_device = torch_device
+        if detector_base_threshold is not None:
+            self.detector_base_threshold = detector_base_threshold
     
 
 class TableDetector:
@@ -316,7 +319,11 @@ class TableDetector:
         if not config.warn_uninitialized_weights:
             previous_verbosity = transformers.logging.get_verbosity()
             transformers.logging.set_verbosity(transformers.logging.ERROR)
-        self.image_processor = AutoImageProcessor.from_pretrained(config.image_processor_path)
+
+        # DetrFeatureExtractor works much better to detect tables from PDFs like 10q than AutoImageProcessor.
+        # https://github.com/NielsRogge/Transformers-Tutorials/blob/master/Table%20Transformer/Inference_with_Table_Transformer_(TATR)_for_parsing_tables.ipynb
+        self.image_processor = DetrFeatureExtractor()
+        # self.image_processor = AutoImageProcessor.from_pretrained(config.image_processor_path)
         
         revision = "no_timm" if config.no_timm else None
         self.detector = TableTransformerForObjectDetection.from_pretrained(config.detector_path, revision=revision).to(config.torch_device)
@@ -338,7 +345,7 @@ class TableDetector:
             config.__dict__.update(config_overrides.__dict__)
         else:
             config = self.config
-        
+
         img = page.get_image(72) # use standard dpi = 72, which means we don't need any scaling
         encoding = self.image_processor(img, return_tensors="pt").to(self.config.torch_device)
         with torch.no_grad():
@@ -349,6 +356,14 @@ class TableDetector:
         results = self.image_processor.post_process_object_detection(outputs, threshold=threshold, target_sizes=target_sizes)[
             0
         ]
+
+        # for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
+        #     box = [round(i, 2) for i in box.tolist()]
+        #     print(
+        #         f"Detected Table #{label.item()} with confidence "
+        #         f"{round(score.item(), 3)} at location {box}"
+        #     )
+
         tables = []
         for i in range(len(results["boxes"])):
             bbox = results["boxes"][i].tolist()
